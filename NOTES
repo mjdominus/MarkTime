@@ -1,0 +1,289 @@
+MarkTime Date and Time suite
+
+MarkTime has five kinds of objects:
+
+    Time
+
+      Representing a particular instant of absolute time
+
+    TimeInterval
+
+      Representing an interval of time with a start Time and an end Time.
+
+    Duration
+
+      Representing a certain emount of elapsed time between two events
+
+    TimeLabel
+
+      Representing a (possibly vague, ambiguous or meaningless) description
+      of a time in a particular calendar system
+
+    Calendar
+
+      Representing a set of rules or algorithms for converting a
+      certain style ot TimeLabel to a Time or vice versa
+
+Time values represent absolute instants of time in some canonical
+system, probably seconds-since-1900 or something like that.
+TimeLabels represent *names* or *labels* for times in some calendar.
+A TimeLabel object always has an associated Calendar (possibly an
+implicit one) that can be used to convert it to a Time or to compare
+it with other TimeLabels.
+
+Time object methods:
+
+      $time->add($seconds)
+      $time->add($seconds, $nanoseconds)
+      $time->add($timeinterval)
+
+        Add an absolute number of seconds or $seconds + $nanoseconds *
+        1e-9 to the time, returning a new Time object.  Either or both
+        arguments may be fractional. If $nanoseconds is omitted, it
+        default to 0.  If needed, we could expand to
+        $time->add($seconds, $nanoseconds, $attoseconds) etc.
+
+      $time->subtract($seconds)
+      $time->subtract($seconds, $nanoseconds)
+
+        Equivalent to $time->add(-$seconds, -$nanoseconds)
+
+      $time->subtract($timeinterval)
+
+        Equivalent to $time->add($timeinterval->negate)
+
+      $time->label($calendar) is shorthand for $calendar->label($time)
+
+      $time1->until($time2) returns a duration object representing the
+      (possibly negative) time elapsed after $time1 until $time2.
+      $time1->since($time2) is the same as $time2->until($time1).
+
+      $time1->precedes($time2)
+      $time1->equals($time2)
+      $time1->follows($time2)
+
+        $time1->precedes($time2) means exactly that
+        $time1->until($time2) is strictly positive.
+
+      $time->as_interval returns a TimeInterval that starts and ends
+      at $time.
+
+      Time->infinite_future
+      Time->infinite_past
+
+        Represent times plus and minus infinity, respectively.  Omit
+        these in the initial release.
+
+TimeInterval
+
+    A TimeInterval is a pair of Time objects, one representing the
+    start and one the end of a particular interval of time.  The start
+    is guaranteed to be earlier than the end.  ->start and ->end are
+    accessors for these Times.
+
+    $timeinterval->duration  returns a Duration object equal to
+    $timeinterval->start->until($timeinterval->end).
+
+    Probably there are some sort of mutators for these, such as
+    $timeinterval->add_end($duration).
+
+    Since we have this, can't we adopt the convention that a Time
+    object is a TimeInterval of a sufficiently small duration, say
+    1s or less, and that the ->start is implied whenever it use used
+    as a Time, such as when it is converted
+    to a label?
+
+Calendar object methods
+
+    $calendar->label($time) generates a TimeLabel for the specified
+    time.  This method is allowed to fail, if the calendar has no
+    label for the specified time.  If there are multiple correct
+    labels in that calendar, it should return one of them.
+
+    $calendar->time($label) converts a label to a time. Possible
+    failures include:
+
+      Label is meaningless
+
+        For example, a label that refers to 30 February in the
+        standard Gregorian calendar.  However, a different Calendar
+        implementaiton might adopt the convention that this label was
+        meaningful, and return the same time as the corresponding
+        label for 2 March.  
+
+      Label is indefinite
+
+        For example, a label that said "March 30" without giving a
+        year, or a label that specified a time but no time zone.  But
+        a different Calendar implementation might have the implied
+        convention that all times are to be interpreted UTC, and so
+        might not require that its labels carry time zones.  It simply
+        does not idetify any particular time or time interval.
+
+      Label is approximate
+
+        Strictly speaking, "1969-04-02 02:38:27 EST" is indefinite: it
+        could refer to any time between 02:38:27 up to 02:38:28.  For
+        convenience, we will allow this label to be converted to the
+        time for start of the interval it represents.  A label such as
+        "1969-04-02 EST" is no different in principle: it represents a
+        certain 24-hour interval of time.  
+
+        A Calendar object will have a maximum fuzz it will tolerate
+        when converting a TimeLabel to a Time, typically 1s. A label
+        which can be converted to a TimeInterval but not to a Time is
+        said to be "approximate".
+
+        This is in contrast with indefinite timelabels, which can't be
+        converted to anything.
+
+      Label is ambiguous
+
+        For example, a label that specifies a time of day that occurs
+        during an autumn DST adjustment, but which doesn't have a flag
+        to say whether the time is during the first or the second
+        occurrence of that hour.
+
+      Label is in the wrong Calendar
+
+        $j = MarkTime::Calendar::Hebrew->timelabel(...);
+        MarkTime::Calendar::Std->time($j); is not going to work.
+
+   $calendar1->same_as($calendar2)
+
+   A particular Calendar module may implement several different
+   calendars.  For example, MarkTime::Calendar::Std implements a
+   calendar in which time zones are required, one in which they are
+   optional, one in which the only time zone is UTC, TAI versions of
+   these, and so on.  This can be used to decide if two calendars are
+   identical.
+
+   $calendar->is_approximate($timelabel) / ->is_exact
+
+     Exact is a bit of a fib. It means that the TimeLabel's missing
+        information is sufficiently small that the Calendar is willing
+        to convert this timelabel to a Time.
+
+   $calendar->is_definite($timelabel) / ->is_indefinite
+
+     The Calendar is willing / unwilling to convert this TimeLabel to
+     a TimeInterval.  Any TimeLabel that is_exact must also be
+     is_definite.
+
+TimeLabel object methods
+
+    $timelabel->calendar returns the Calendar object in which this
+    label is expected to be interpreted.  This might be explicitly
+    stored in the $timelabel, or it might be implicit in the
+    $timelabel's class.
+
+    $timelabel->time is equivalent to $timelabel->calendar->time($timelabel).
+
+    Each calendar should specify meaningful components of timelabels,
+    such aas month or hour.  If "hour" is such a component, there
+    should be a $timelabel->hour accessor to recover the hour.
+
+    $timelabel->clone copies a timelabel, returning an identical one.
+    $timelabel->clone should accept arguments to say how to change
+    components of the starting timelabel.  For example,
+    $timelabel->clone( hour => 17 ) should return a timelabel
+    identical to $timelabel, but with the hour set to 17, if "hour" is
+    a meaningful component for this calendar.
+
+    EXAMPLE: Standard proleptic Gregorian calendar, called
+    MarkTime::Calendar::Std.  This calendar supports components
+    called:
+
+      ns / nanosecond
+      sec / second
+      min / minute
+      hr / hour
+      day
+      mon / month
+      yr / year
+      era
+      zone / time_zone
+
+   Underlying implementation: Use DateTime.
+
+   These objects will support calendar-specific methods for
+   calendar-specific date calculations.  For example,
+   $timelabel->end_of_month might return a timelabel that represents
+   the time at which the month for $timelabel ends.
+
+   Timelabels may be incomplete.  For example, one might have
+   MarkTime::Calendar::Std->timelabel(year => 2013, month => 12, day
+   => 7) which represents an unspecified time on December 7, 2013.
+   This object can't be converted to a ->time, but it can be converted
+   to a TimeInterval whose start is the beginning of 2013-12-07 and
+   whose end is the end of 2013-12-07.
+
+   $timelabel->is_valid : would $timelabel->time succeed, if it were called?
+   $timelabel->is_complete : would $timelabel->time succeed, if it were called?
+   XXX MAKE UP YOUR MIND ABOUT THIS
+
+   $timelabel1->same_calendar_as($timelabel2)
+
+     Equivalent to $timelabel1->calendar->same_as($timelabel2->calendar)
+
+   TimeLabels may support all sorts of other methods, such as
+     ->next_month, ->yesterday, ->last_day_of_month, ->add(day => 3),
+     ->start_of_business, ->week_of_year, etc.  
+
+Duration
+
+    Duration->new($s, $ns, ...)
+
+      $ns can be omitted, and is then taken as 0.  Further arguments
+      will be attoseconds, but will not be supported in the initial
+      release.
+
+      $ns may be larger than 999_99_999, but the resulting
+      Duration will be normalized, so for example
+      Duration->new(1, 1000000001) returns a Duration for which
+      ->s returns 2 and ->ns returns 1.
+
+      $s and $ns may be fractional.  
+
+    $timeinterval->s
+    $imteinterval->ns
+
+      Recover the number of seconds, nanoseconds, etc. from the
+      object.  This is always the normalized value.  ->s omits the
+      fractional seconds, if any; similarly ->ns omits the seconds and
+      the fractional nanoseconds, if any.
+
+    $timeinterval->as_s
+
+      The total number of seconds, including fractional seconds, is returned.
+
+    $timeinterval->as_ns
+
+      The total number of nanoseconds, including fractional
+      nanoseconds, is returned.  For example, Duration->new(1,
+      7)->ns returns 1_000_000_007.
+
+    $timeinterval->add($s, $ns, $as)
+    $timeinterval->subtract($s, $ns, $as)
+
+    $timeinterval1->add($timeinterval2)
+    $timeinterval1->subtract($timeinterval2)
+
+Output Formatters
+
+    Per TimeLabel, but if not set, the $timelabel uses
+    $timelabel->calendar->default_formatter instead.
+
+    $timelabel->as_string(FORMAT) uses $timelabel->formatter->format(FORMAT).
+
+Input Formatters
+
+    $if = IFormat->make_date_reader(STRPTIME STRING OR WHATEVER);
+    $timelabel = $if->parse(date string)
+
+    A Calendar may have a parser factory, and it might even have a
+    default parser.  Such a parser might return an incomplete
+    timelabel; that's okay.
+
+
+
